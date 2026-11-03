@@ -15,6 +15,7 @@ Usage:
     cp .env.example .env   # fill in real values
     python scripts/live_smoke.py
     python scripts/live_smoke.py --fixture tests/fixtures/intake_quote.json
+    python scripts/live_smoke.py --skip-llm   # HubSpot only, no Anthropic key needed
 """
 
 from __future__ import annotations
@@ -32,7 +33,9 @@ sys.path.insert(0, str(ROOT))
 
 import httpx  # noqa: E402
 
+from app.classify import fallback  # noqa: E402
 from app.config import ConfigError, Settings  # noqa: E402
+from app.hubspot import HubSpotClient, HubSpotError  # noqa: E402
 from app.security import SIGNATURE_HEADER, TIMESTAMP_HEADER, compute_signature  # noqa: E402
 from scripts._env import load_dotenv  # noqa: E402
 
@@ -47,17 +50,40 @@ def _post(target, url: str, body: bytes, secret: str):
     return target.post(url, content=body, headers=headers)
 
 
+class _SkipLLM:
+    """Stand-in classifier for --skip-llm: always the safe fallback."""
+
+    def classify(self, payload):
+        return fallback("llm_skipped")
+
+
+def _print_links(settings: Settings, data: dict) -> None:
+    client = HubSpotClient(settings.hubspot_token, settings.hubspot_base_url)
+    try:
+        info = client.account_details()
+    except HubSpotError:
+        return
+    finally:
+        client.close()
+    base = f"https://{info.get('uiDomain', 'app.hubspot.com')}/contacts/{info['portalId']}/record"
+    print(f"   contact: {base}/0-1/{data['contact_id']}")
+    print(f"   deal:    {base}/0-3/{data['deal_id']}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--fixture", default=str(ROOT / "tests/fixtures/intake_coi.json"))
     parser.add_argument("--url", help="POST to a running server instead of in-process")
     parser.add_argument(
-        "--portal-id", help="HubSpot portal (hub) ID, only used to print record links"
+        "--skip-llm",
+        action="store_true",
+        help="don't call Claude; every request takes the needs-review fallback path",
     )
     args = parser.parse_args()
 
     load_dotenv(ROOT / ".env")
-    missing = [k for k in ("HUBSPOT_TOKEN", "ANTHROPIC_API_KEY") if not os.environ.get(k)]
+    needed = ["HUBSPOT_TOKEN"] + ([] if args.skip_llm else ["ANTHROPIC_API_KEY"])
+    missing = [k for k in needed if not os.environ.get(k)]
     if missing:
         print(f"Live mode needs {', '.join(missing)}. Skipping.", file=sys.stderr)
         return 2
@@ -81,7 +107,8 @@ def main() -> int:
 
         from app.main import create_app
 
-        target = TestClient(create_app(settings))
+        classifier = _SkipLLM() if args.skip_llm else None
+        target = TestClient(create_app(settings, classifier=classifier))
         target.__enter__()
         url, close = "/webhooks/intake", target
 
@@ -93,10 +120,7 @@ def main() -> int:
             return 1
 
         data = first.json()
-        if args.portal_id:
-            base = f"https://app.hubspot.com/contacts/{args.portal_id}/record"
-            print(f"   contact: {base}/0-1/{data['contact_id']}")
-            print(f"   deal:    {base}/0-3/{data['deal_id']}")
+        _print_links(settings, data)
 
         print("-> POST same payload again (should be a duplicate)")
         second = _post(target, url, body, settings.webhook_secret)

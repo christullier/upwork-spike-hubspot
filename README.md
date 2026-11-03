@@ -132,6 +132,7 @@ is in the code or the repo; `.env` is git-ignored.
    | `crm.objects.contacts.write` | create/update contacts; create notes on contacts |
    | `crm.objects.deals.read` | search deals by idempotency key; list pipelines |
    | `crm.objects.deals.write` | create deals |
+   | `crm.schemas.deals.write` *(setup only)* | create the idempotency property / pipeline via API instead of the UI |
    | `crm.objects.owners.read` *(optional)* | only if you want to look up owner IDs via API |
 
    Copy the access token into `HUBSPOT_TOKEN`. HubSpot ties notes to the scopes of the
@@ -212,15 +213,18 @@ needed.
 contact, a deal and a note in HubSpot, then sends the identical payload again and checks
 that it is reported as a duplicate. It needs `HUBSPOT_TOKEN` and `ANTHROPIC_API_KEY` plus
 the pipeline/stage variables, and exits with code 2 if they are missing.
+`GET /account-info/v3/details`, used only to print record links, needs no extra scope.
 
 ```bash
-python scripts/live_smoke.py --portal-id <your hub id>
+python scripts/live_smoke.py
 ```
 
 ```bash
 python scripts/live_smoke.py --fixture tests/fixtures/intake_quote.json --url http://localhost:8000/webhooks/intake
 ```
 
+Add `--skip-llm` to test only the HubSpot side without an Anthropic key (the request takes
+the needs-review fallback path). The script prints links to the created contact and deal.
 Each run adds a `+smoke<random>` tag to the email so runs don't merge into one contact.
 **It creates real records**, so point it at a test account.
 

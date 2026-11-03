@@ -198,5 +198,9 @@ class HubSpotClient:
 
     # ---- setup helpers ---------------------------------------------------
 
+    def account_details(self) -> dict:
+        """Portal ID and UI domain, used to print record links."""
+        return self._request("GET", "/account-info/v3/details")
+
     def list_deal_pipelines(self) -> list[dict]:
         return self._request("GET", "/crm/v3/pipelines/deals").get("results", [])
