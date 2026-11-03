@@ -198,6 +198,14 @@ class HubSpotClient:
 
     # ---- setup helpers ---------------------------------------------------
 
+    def get_object(
+        self, object_type: str, object_id: str, properties: list[str], associations: list[str] = ()
+    ) -> dict:
+        query = f"properties={','.join(properties)}"
+        if associations:
+            query += f"&associations={','.join(associations)}"
+        return self._request("GET", f"/crm/v3/objects/{object_type}/{object_id}?{query}")
+
     def account_details(self) -> dict:
         """Portal ID and UI domain, used to print record links."""
         return self._request("GET", "/account-info/v3/details")

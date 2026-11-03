@@ -41,6 +41,18 @@ with everything they need, and people do the insurance work.
 
 ---
 
+## Demo
+
+![Demo: offline tests, live HubSpot run, duplicate detection, record read-back](docs/demo.gif)
+
+35 seconds, recorded 3 Nov 2026 ([MP4](docs/demo.mp4)). The real terminal output was captured
+and then replayed at its original timing: the offline test suite, a live webhook run that
+creates a contact, deal and note in a HubSpot portal, the repeat submission being rejected as a
+duplicate, and the deal read back from HubSpot's API. It was run with `--skip-llm`, so the
+request takes the needs-review fallback path.
+
+---
+
 ## How it works
 
 ```mermaid
@@ -78,6 +90,7 @@ Text version: `webhook → verify HMAC → validate payload → idempotency chec
 | `app/config.py`, `app/logs.py` | Env-var settings, JSON logging |
 | `scripts/live_smoke.py` | One real end-to-end run against HubSpot + Claude |
 | `scripts/list_pipelines.py` | Prints your deal pipeline/stage IDs for `.env` |
+| `scripts/show_deal.py` | Reads a deal back from HubSpot with its stage, contact and note |
 
 ---
 
