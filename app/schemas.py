@@ -70,9 +70,10 @@ class Classification(LLMClassification):
 class IntakeResponse(BaseModel):
     status: str  # "created" | "duplicate" | "resumed"
     intake_id: str
-    request_type: RequestType
-    urgency: Urgency
-    needs_review: bool
+    # Unknown when a duplicate is detected from HubSpot alone (e.g. after a restart).
+    request_type: RequestType | None = None
+    urgency: Urgency | None = None
+    needs_review: bool | None = None
     contact_id: str | None = None
     deal_id: str | None = None
     note_id: str | None = None
