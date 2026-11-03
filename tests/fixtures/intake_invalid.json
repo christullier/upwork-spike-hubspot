@@ -1,0 +1,6 @@
+{
+  "name": "",
+  "email": "not-an-email",
+  "message": "",
+  "unexpected_field": "should be rejected"
+}
