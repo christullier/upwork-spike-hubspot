@@ -5,10 +5,22 @@ from __future__ import annotations
 import socket
 
 import pytest
+import respx
+from fastapi.testclient import TestClient
 
-
-class NetworkBlockedError(RuntimeError):
-    pass
+from app.classify import Classifier
+from app.config import Settings
+from app.hubspot import HubSpotClient
+from app.idempotency import Ledger
+from app.main import create_app
+from tests.fakes import (
+    HUBSPOT_BASE,
+    SECRET,
+    STAGES,
+    FakeClaude,
+    HubSpotRoutes,
+    NetworkBlockedError,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -31,3 +43,53 @@ def _block_network(monkeypatch):
 
     monkeypatch.setattr(socket.socket, "connect", guarded_connect)
     monkeypatch.setattr(socket, "create_connection", guarded_create_connection)
+
+
+@pytest.fixture
+def settings(tmp_path) -> Settings:
+    return Settings(
+        webhook_secret=SECRET,
+        hubspot_token="test-hubspot-token",
+        pipeline_id="intake-pipeline",
+        stage_ids=dict(STAGES),
+        owner_ids={"coi": "owner-coi-desk"},
+        anthropic_model="claude-test",
+        hubspot_base_url=HUBSPOT_BASE,
+        idempotency_db_path=str(tmp_path / "ledger.db"),
+    )
+
+
+@pytest.fixture
+def claude() -> FakeClaude:
+    return FakeClaude()
+
+
+@pytest.fixture
+def sleeps() -> list[float]:
+    return []
+
+
+@pytest.fixture
+def hubspot_mock():
+    with respx.mock(base_url=HUBSPOT_BASE, assert_all_called=False) as mock:
+        yield mock
+
+
+@pytest.fixture
+def client(settings, claude, sleeps, hubspot_mock):
+    hubspot = HubSpotClient(
+        settings.hubspot_token, settings.hubspot_base_url, max_retries=3, sleep=sleeps.append
+    )
+    app = create_app(
+        settings,
+        classifier=Classifier(claude.client(), settings.anthropic_model),
+        hubspot=hubspot,
+        ledger=Ledger(settings.idempotency_db_path),
+    )
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def hubspot(hubspot_mock) -> HubSpotRoutes:
+    return HubSpotRoutes(hubspot_mock)

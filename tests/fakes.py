@@ -1,4 +1,4 @@
-"""Test doubles: fixture loading and a fake Anthropic HTTP layer.
+"""Test doubles and helpers: fixtures, fake Claude transport, signing, HubSpot routes.
 
 The Anthropic SDK (2.x) sends requests through ``httpx2``, which respx does not
 patch, so Claude calls are mocked with ``httpx2.MockTransport`` instead. HubSpot
@@ -8,12 +8,31 @@ calls go through ``httpx`` and are mocked with respx.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import anthropic
 import httpx2
+import respx
+from fastapi.testclient import TestClient
+
+from app.security import SIGNATURE_HEADER, TIMESTAMP_HEADER, compute_signature
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+HUBSPOT_BASE = "https://hubspot.test"
+SECRET = "test-webhook-secret"
+STAGES = {
+    "quote": "stage-quote",
+    "coi": "stage-coi",
+    "policy_change": "stage-policy-change",
+    "renewal": "stage-renewal",
+    "review": "stage-review",
+}
+
+
+class NetworkBlockedError(RuntimeError):
+    pass
 
 
 def load_fixture(name: str) -> dict:
@@ -75,3 +94,42 @@ class FakeClaude:
 
     def request_json(self, index: int = -1) -> dict:
         return json.loads(self.requests[index].content)
+
+
+def signed_headers(body: bytes, timestamp: int | None = None, secret: str = SECRET) -> dict:
+    ts = str(int(time.time()) if timestamp is None else timestamp)
+    return {
+        "Content-Type": "application/json",
+        TIMESTAMP_HEADER: ts,
+        SIGNATURE_HEADER: compute_signature(secret, ts, body),
+    }
+
+
+def post_intake(client: TestClient, payload: dict, timestamp: int | None = None):
+    body = json.dumps(payload).encode()
+    return client.post("/webhooks/intake", content=body, headers=signed_headers(body, timestamp))
+
+
+class HubSpotRoutes:
+    """Default happy-path HubSpot routes; tests override individual ones."""
+
+    def __init__(self, mock: respx.MockRouter, existing_contact_id: str | None = None) -> None:
+        self.deal_search = mock.post("/crm/v3/objects/deals/search").respond(
+            json={"total": 0, "results": []}
+        )
+        found = [{"id": existing_contact_id}] if existing_contact_id else []
+        self.contact_search = mock.post("/crm/v3/objects/contacts/search").respond(
+            json={"total": len(found), "results": found}
+        )
+        self.contact_create = mock.post("/crm/v3/objects/contacts").respond(
+            201, json={"id": "contact-new"}
+        )
+        self.contact_update = mock.patch(url__regex=r"/crm/v3/objects/contacts/\w+").respond(
+            json={"id": existing_contact_id or "?"}
+        )
+        self.deal_create = mock.post("/crm/v3/objects/deals").respond(201, json={"id": "deal-1"})
+        self.note_create = mock.post("/crm/v3/objects/notes").respond(201, json={"id": "note-1"})
+
+    @staticmethod
+    def body(route) -> dict:
+        return json.loads(route.calls.last.request.content)
