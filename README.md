@@ -225,6 +225,12 @@ python scripts/live_smoke.py --fixture tests/fixtures/intake_quote.json --url ht
 
 Add `--skip-llm` to test only the HubSpot side without an Anthropic key (the request takes
 the needs-review fallback path). The script prints links to the created contact and deal.
+**Last verified live (2026-11-03, `--skip-llm`):** against a HubSpot portal, the contact was
+created, and a deal landed in the Intake pipeline's *Needs Review* stage with `hs_priority=medium`
+and the idempotency key set. The deal and note were associated with the contact. The repeat
+submission returned `duplicate`, and the HubSpot-side key search found the deal. A live Claude
+classification has not been verified yet.
+
 Each run adds a `+smoke<random>` tag to the email so runs don't merge into one contact.
 **It creates real records**, so point it at a test account.
 
